@@ -166,7 +166,7 @@ namespace ompl
             }
 
             /** \brief Grow a tree towards a random state */
-            GrowState growTree(TreeData &tree, TreeGrowingInfo &tgi, Motion *rmotion);
+            GrowState growTree(TreeData &tree, TreeGrowingInfo &tgi, Motion *rmotion, bool use_most_recent_sample = false);
 
             /** \brief State sampler */
             base::StateSamplerPtr sampler_;

@@ -114,10 +114,17 @@ void ompl::geometric::RRTConnect::clear()
 }
 
 ompl::geometric::RRTConnect::GrowState ompl::geometric::RRTConnect::growTree(TreeData &tree, TreeGrowingInfo &tgi,
-                                                                             Motion *rmotion)
+                                                                             Motion *rmotion, bool use_most_recent_sample)
 {
-    /* find closest state in the tree */
-    Motion *nmotion = tree->nearest(rmotion);
+    Motion *nmotion = nullptr;
+    if (use_most_recent_sample) {
+        // std::cout << "target: "; si_->printState(rmotion->state);
+        // std::cout << "nearest: "; si_->printState(tgi.xstate);
+        nmotion = tgi.xmotion;
+    } else {
+        /* find closest state in the tree */
+        nmotion = tree->nearest(rmotion);
+    }
 
     /* assume we can reach the state we go towards */
     bool reach = true;
@@ -139,11 +146,21 @@ ompl::geometric::RRTConnect::GrowState ompl::geometric::RRTConnect::growTree(Tre
         reach = false;
     }
 
-    bool validMotion = tgi.start ? si_->checkMotion(nmotion->state, dstate) :
-                                   si_->isValid(dstate) && si_->checkMotion(dstate, nmotion->state);
+    // bool validMotion = tgi.start ? si_->checkMotion(nmotion->state, dstate) :
+    //                                si_->isValid(dstate) && si_->checkMotion(dstate, nmotion->state);
+    si_->copyState(tgi.xstate, dstate);
+    bool validMotion = si_->checkMotion(nmotion->state, tgi.xstate);
+    bool unchanged = si_->equalStates(dstate, tgi.xstate);
+    if (!unchanged) {
+        dstate = tgi.xstate;
+        reach = false;
+    }
+    // std::cout << "nmotion: "; si_->printState(nmotion->state); std::cout << " dstate: "; si_->printState(dstate);;
+    // std::cout << "unchanged: " << unchanged << " reach: " << reach << " validMotion: " << validMotion << "\n\n";
 
-    if (!validMotion)
+    if (!validMotion) {
         return TRAPPED;
+    }
 
     if (addIntermediateStates_)
     {
@@ -257,6 +274,7 @@ ompl::base::PlannerStatus ompl::geometric::RRTConnect::solve(const base::Planner
         /* sample random state */
         sampler_->sampleUniform(rstate);
 
+        // std::cout << "growTree from " << (tgi.start ? "start" : "goal") << std::endl;
         GrowState gs = growTree(tree, tgi, rmotion);
 
         if (gs != TRAPPED)
@@ -272,13 +290,23 @@ ompl::base::PlannerStatus ompl::geometric::RRTConnect::solve(const base::Planner
 
             tgi.start = startTree_;
 
+            // std::cout << "check if we can connect to the other tree " << (tgi.start ? "start" : "goal") << std::endl;
             /* if initial progress cannot be done from the otherTree, restore tgi.start */
             GrowState gsc = growTree(otherTree, tgi, rmotion);
             if (gsc == TRAPPED)
                 tgi.start = !tgi.start;
 
+            double minAdvanceDistance = si_->distance(tgi.xmotion->state, rstate);
             while (gsc == ADVANCED)
-                gsc = growTree(otherTree, tgi, rmotion);
+            {
+                // std::cout << "in while loop\n";
+                gsc = growTree(otherTree, tgi, rmotion, true);
+                const double newDist = si_->distance(tgi.xmotion->state, rstate);
+                if (newDist <= minAdvanceDistance - si_->getStateSpace()->getLongestValidSegmentLength())
+                    minAdvanceDistance = newDist;
+                else
+                    break;
+            }
 
             /* update distance between trees */
             const double newDist = tree->getDistanceFunction()(addedMotion, otherTree->nearest(addedMotion));
